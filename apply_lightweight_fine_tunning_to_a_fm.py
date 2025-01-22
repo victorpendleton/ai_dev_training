@@ -16,6 +16,7 @@ from transformers import (AutoTokenizer,
                           )
 from torch.nn.functional import softmax
 import evaluate
+import random
 import torch
 
 # Define the metric variable
@@ -46,6 +47,10 @@ def evaluate_singleton(text_to_evaluate, model):
 
     print("\nDetailed Evaluation on One Sample:")
     print(f"Input Text: {text_to_evaluate[:200]}...\nProbabilities: {probs}\n")
+
+
+def get_data_subset(data, start_range, stop_range):
+    return data[start_range:stop_range]
 
 
 def evaluate_model(model, tokenizer, data_to_evaluate):
@@ -92,7 +97,13 @@ def train_and_evaluate_model(model_to_train_and_evaluate, tokenizer_to_user, tra
     # return the evaluation
     return trainer.evaluate()
 
+'''
+' Load and process a dataset
+'''
 
+'''
+' Load a pretrained HF model
+'''
 # load the imdb dataset
 dataset = load_dataset("imdb")
 print("Dataset:", dataset)
@@ -122,12 +133,20 @@ if tokenizer.pad_token is None:
 print("Model:", base_model)
 print("Tokenizer:", tokenizer)
 
-# Evaluate the model
-evaluate_model(base_model, tokenizer, test_subset['text'][:5])
+# Generate the values to extract from the dataset for evaluation
+number_rows = len(test_subset)
+random_number = random.randint(5, number_rows)
+start_pos = random_number-5
+stop_pos = random_number-1
 
-# Test single entry
-evaluate_singleton("I really, really, really hate it", base_model)
-evaluate_singleton("loved it!", base_model)
+'''
+' Evaluate the model
+'''
+evaluate_model(base_model, tokenizer, test_subset['text'][start_pos:stop_pos])
+
+# # Test single entry
+# evaluate_singleton("I really, really, really hate it", base_model)
+# evaluate_singleton("loved it!", base_model)
 
 # Tokenize the data
 # training data
@@ -137,7 +156,9 @@ print("Tokenized training data:", tokenized_train_dataset)
 tokenized_test_dataset = test_subset.map(tokenize_function, batched=True)
 print("Tokenized testing data:", tokenized_test_dataset)
 
-# LoRA
+'''
+' LoRA
+'''
 # LoRA model name
 lora_model_name = model_name + "-lora"
 lora_output_dir = "lora_peft_model"
@@ -150,7 +171,7 @@ lora_config = LoraConfig(
     target_modules=["attention.q_lin", "attention.k_lin", "attention.v_lin", "attention.out_lin"],
     lora_dropout=0.1,
     peft_type=PeftType.LORA,
-    task_type=TaskType.SEQ_CLS,
+    task_type=TaskType.CAUSAL_LM,
     bias="none"
 )
 
@@ -160,20 +181,24 @@ lora_model = get_peft_model(base_model, lora_config)
 
 # Training with a peft model
 # Checking the trainable parameters of a peft model
-lora_model.print_trainable_parameters()
+print(lora_model.print_trainable_parameters())
+
+# Train and evaluate the peft model
+lora_model_results = train_and_evaluate_model(lora_model, tokenizer, tokenized_train_dataset
+                                              , tokenized_test_dataset, 5, float("5e-5"))
+print("Fine-tuned model results:", lora_model_results)
 
 # Saving a peft model
 lora_model.save_pretrained(lora_output_dir)
+print("Saved LoRA Model:", lora_model)
 
-
-# Interface with peft
-# Loading a saved peft model
+# Load the saved peft model
 lora_model_loaded = PeftModel.from_pretrained(base_model, lora_output_dir)
+print("Saved Trained LoRA Model:", lora_model_loaded)
 
-print("LoRA Model:", lora_model)
-
-# Train and evaluate the peft model
-lora_model_results = train_and_evaluate_model(lora_model_loaded, tokenizer, tokenized_train_dataset
-                                              , tokenized_test_dataset, 1, float("5e-5"))
-
-print("Fine-tuned model results:", lora_model_results)
+# Evaluate the trained LoRA model
+print("Evaluating the pre-trained base model...")
+evaluate_model(lora_model_loaded, tokenizer, test_subset['text'][start_pos:stop_pos])
+# # Test single entry
+# evaluate_singleton("I really, really, really hate it", lora_model_loaded)
+# evaluate_singleton("loved it!", lora_model_loaded)
