@@ -2,6 +2,7 @@
 from peft import (AutoPeftModelForSequenceClassification,
                   LoraConfig,
                   get_peft_model,
+                  PeftModel,
                   PeftType,
                   TaskType)
 from datasets import (load_dataset)
@@ -136,6 +137,11 @@ print("Tokenized training data:", tokenized_train_dataset)
 tokenized_test_dataset = test_subset.map(tokenize_function, batched=True)
 print("Tokenized testing data:", tokenized_test_dataset)
 
+# LoRA
+# LoRA model name
+lora_model_name = model_name + "-lora"
+lora_output_dir = "lora_peft_model"
+
 # Creating a peft config
 lora_config = LoraConfig(
     inference_mode=False,
@@ -148,10 +154,6 @@ lora_config = LoraConfig(
     bias="none"
 )
 
-# LoRA
-# LoRA model name
-lora_model_name = model_name + "-lora"
-
 # Create a LoRA model from the pre-trained model
 # Converting a transformers model into a peft model
 lora_model = get_peft_model(base_model, lora_config)
@@ -161,23 +163,17 @@ lora_model = get_peft_model(base_model, lora_config)
 lora_model.print_trainable_parameters()
 
 # Saving a peft model
-lora_model.save_pretrained(lora_model_name)
+lora_model.save_pretrained(lora_output_dir)
+
 
 # Interface with peft
 # Loading a saved peft model
-lora_model = AutoPeftModelForSequenceClassification.from_pretrained(lora_model_name)
+lora_model_loaded = PeftModel.from_pretrained(base_model, lora_output_dir)
 
 print("LoRA Model:", lora_model)
 
-'''
-# Train and evaluate the models
-base_model_results = train_and_evaluate_model(base_model, tokenizer,
-                                              tokenized_train_dataset, tokenized_test_dataset, 1,
-                                              float("2e-5"))
-lora_model_results = train_and_evaluate_model(lora_model, tokenizer, tokenized_train_dataset
+# Train and evaluate the peft model
+lora_model_results = train_and_evaluate_model(lora_model_loaded, tokenizer, tokenized_train_dataset
                                               , tokenized_test_dataset, 1, float("5e-5"))
 
-print("Base model results:", base_model_results)
 print("Fine-tuned model results:", lora_model_results)
-
-'''
