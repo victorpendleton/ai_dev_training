@@ -2,14 +2,11 @@
 from peft import (AutoPeftModelForSequenceClassification,
                   LoraConfig,
                   get_peft_model,
-                  PeftModel,
                   PeftType,
                   TaskType)
 from datasets import (load_dataset)
 from transformers import (AutoTokenizer,
                           AutoModelForSequenceClassification,
-                          DistilBertForSequenceClassification,
-                          DistilBertTokenizer,
                           pipeline,
                           TrainingArguments,
                           Trainer
@@ -19,6 +16,7 @@ import evaluate
 import random
 import torch
 
+DEBUG = False
 # Define the metric variable
 metric = evaluate.load("accuracy")
 # Define the model to use
@@ -36,7 +34,7 @@ def tokenize_function(examples):
 def compute_metrics(eval_pred):
     logits, labels = eval_pred
     predictions = torch.argmax(torch.tensor(logits), dim=1)
-    print("Predictions and labels:", predictions, labels)
+    print_debug(("Predictions and labels:", predictions, labels), DEBUG)
     return metric.compute(predictions=predictions, references=labels)
 
 
@@ -61,6 +59,11 @@ def evaluate_model(model, tokenizer, data_to_evaluate):
     print("\nPredictions on Sample Texts:")
     for text, prediction in zip(data_to_evaluate, predictions):
         print(f"Text: {text[:100]}...\nPrediction: {prediction}\n")
+
+
+def print_debug(obj, always_print = False):
+    if always_print:
+        print(obj)
 
 
 def view_dataset(dataset_to_view, rows=10):
@@ -110,23 +113,16 @@ def train_and_evaluate_model(model_to_train_and_evaluate, tokenizer_to_user, tra
 '''
 # load the imdb dataset
 dataset = load_dataset("imdb")
-print("Dataset:", dataset)
+print_debug(("Dataset:", dataset), True)
 
 # Work with about 10% of the downloaded data
 train_subset = dataset["train"].train_test_split(train_size=0.01, seed=42)["train"]
 test_subset = dataset["test"].train_test_split(test_size=0.01, seed=42)["test"]
-print("Training data:", train_subset)
-print("Testing data:", test_subset)
+print_debug(("Training data:", train_subset), DEBUG)
+print_debug(("Testing data:", test_subset), DEBUG)
 
 # # View some of the data
 # view_dataset(train_subset, 10)
-
-# Create the model and tokenizer
-# Distilled Bert
-# base_model = DistilBertForSequenceClassification.from_pretrained(
-#     model_name, num_labels=2
-# )
-# tokenizer = DistilBertTokenizer.from_pretrained(model_name)
 
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 base_model = AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=2)
@@ -134,8 +130,8 @@ base_model = AutoModelForSequenceClassification.from_pretrained(model_name, num_
 
 if tokenizer.pad_token is None:
     tokenizer.add_special_tokens({'pad_token': '[PAD]'})
-print("Model:", base_model)
-print("Tokenizer:", tokenizer)
+print_debug(("Model:", base_model), DEBUG)
+print_debug(("Tokenizer:", tokenizer), DEBUG)
 
 # Generate the values to extract from the dataset for evaluation
 number_rows = len(test_subset)
@@ -150,10 +146,10 @@ stop_pos = random_number-1
 # Tokenize the data
 # training data
 tokenized_train_dataset = train_subset.map(tokenize_function, batched=True)
-print("Tokenized training data:", tokenized_train_dataset)
+print_debug(("Tokenized training data:", tokenized_train_dataset), DEBUG)
 # testing data
 tokenized_test_dataset = test_subset.map(tokenize_function, batched=True)
-print("Tokenized testing data:", tokenized_test_dataset)
+print_debug(("Tokenized testing data:", tokenized_test_dataset), DEBUG)
 
 '''
 ' Evaluate the model
@@ -163,7 +159,7 @@ print("Evaluating the pre-trained base model...")
 base_model_results = train_and_evaluate_model(base_model, tokenizer, tokenized_train_dataset
                                               , tokenized_test_dataset, 1, float("2e-5")
                                               , False)
-print("Base model results:", base_model_results)
+print_debug(("Base model results:", base_model_results), True)
 
 '''
 ' LoRA
@@ -191,28 +187,26 @@ lora_model = get_peft_model(base_model, lora_config)
 
 # Training with a peft model
 # Checking the trainable parameters of a peft model
-print(lora_model.print_trainable_parameters())
+lora_model.print_trainable_parameters()
 
 # Train and evaluate the peft model
-lora_model_results = train_and_evaluate_model(lora_model, tokenizer, tokenized_train_dataset
-                                              , tokenized_test_dataset, 1, float("5e-5")
-                                              , True)
-print("Fine-tuned model results:", lora_model_results)
+lora_model_results = train_and_evaluate_model(lora_model, tokenizer, tokenized_train_dataset,
+                                              tokenized_test_dataset, 1, float("5e-5"),
+                                              True)
+print_debug(("Fine-tuned model results:", lora_model_results), True)
 
-# Saving a peft model
+# Saving the peft model
 lora_model.save_pretrained(lora_output_dir)
-print("Saved LoRA Model:", lora_model)
+print_debug(("Saved LoRA Model:", lora_model), DEBUG)
 
 # Load the saved peft model
-# lora_model_loaded = PeftModel.from_pretrained(base_model, lora_output_dir)
-# lora_model_loaded = AutoPeftModelForSequenceClassification.from_pretrained(base_model, lora_output_dir)
 lora_model_loaded = AutoPeftModelForSequenceClassification.from_pretrained(lora_output_dir)
 
-print("Saved Trained LoRA Model:", lora_model_loaded)
+print_debug(("Saved Trained LoRA Model:", lora_model_loaded), DEBUG)
 
-# # Evaluate the trained LoRA model
-# print("Evaluating the pre-trained base model...")
-# evaluate_model(lora_model_loaded, tokenizer, test_subset['text'][start_pos:stop_pos])
-# # # Test single entry
-# # evaluate_singleton("I really, really, really hate it", lora_model_loaded)
-# # evaluate_singleton("loved it!", lora_model_loaded)
+# # Evaluate the peft trained LoRA model
+peft_lora_model_results = train_and_evaluate_model(lora_model_loaded, tokenizer, tokenized_train_dataset,
+                                                   tokenized_test_dataset, 1,
+                                                   float("5e-5"), False)
+print_debug(("Fine-tuned peft model results:", lora_model_results), True)
+
