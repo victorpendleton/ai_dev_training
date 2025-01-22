@@ -69,7 +69,7 @@ def view_dataset(dataset_to_view, rows=10):
         print(dataset_to_view[x])
 
 
-def train_and_evaluate_model(model_to_train_and_evaluate, tokenizer_to_user, train_ds, test_ds, num_epochs=1, learn_rate=2e-5):
+def train_and_evaluate_model(model_to_train_and_evaluate, tokenizer_to_user, train_ds, test_ds, num_epochs=1, learn_rate=2e-5, train_model=False):
     # Training Arguments
     training_args = TrainingArguments(
         evaluation_strategy="epoch",
@@ -91,8 +91,12 @@ def train_and_evaluate_model(model_to_train_and_evaluate, tokenizer_to_user, tra
         compute_metrics=compute_metrics,
     )
 
-    # Evaluate
-    trainer.train()
+    # Train
+    if train_model:
+        print("Training the model...")
+        trainer.train()
+    else:
+        print("Evaluating the model only...")
 
     # return the evaluation
     return trainer.evaluate()
@@ -139,11 +143,6 @@ random_number = random.randint(5, number_rows)
 start_pos = random_number-5
 stop_pos = random_number-1
 
-'''
-' Evaluate the model
-'''
-evaluate_model(base_model, tokenizer, test_subset['text'][start_pos:stop_pos])
-
 # # Test single entry
 # evaluate_singleton("I really, really, really hate it", base_model)
 # evaluate_singleton("loved it!", base_model)
@@ -157,8 +156,19 @@ tokenized_test_dataset = test_subset.map(tokenize_function, batched=True)
 print("Tokenized testing data:", tokenized_test_dataset)
 
 '''
+' Evaluate the model
+'''
+# evaluate_model(base_model, tokenizer, test_subset['text'][start_pos:stop_pos])
+print("Evaluating the pre-trained base model...")
+base_model_results = train_and_evaluate_model(base_model, tokenizer, tokenized_train_dataset
+                                              , tokenized_test_dataset, 1, float("2e-5")
+                                              , False)
+print("Base model results:", base_model_results)
+
+'''
 ' LoRA
 '''
+
 # LoRA model name
 lora_model_name = model_name + "-lora"
 lora_output_dir = "lora_peft_model"
@@ -171,7 +181,7 @@ lora_config = LoraConfig(
     target_modules=["attention.q_lin", "attention.k_lin", "attention.v_lin", "attention.out_lin"],
     lora_dropout=0.1,
     peft_type=PeftType.LORA,
-    task_type=TaskType.CAUSAL_LM,
+    task_type=TaskType.SEQ_CLS,
     bias="none"
 )
 
@@ -185,7 +195,8 @@ print(lora_model.print_trainable_parameters())
 
 # Train and evaluate the peft model
 lora_model_results = train_and_evaluate_model(lora_model, tokenizer, tokenized_train_dataset
-                                              , tokenized_test_dataset, 5, float("5e-5"))
+                                              , tokenized_test_dataset, 1, float("5e-5")
+                                              , True)
 print("Fine-tuned model results:", lora_model_results)
 
 # Saving a peft model
@@ -193,12 +204,15 @@ lora_model.save_pretrained(lora_output_dir)
 print("Saved LoRA Model:", lora_model)
 
 # Load the saved peft model
-lora_model_loaded = PeftModel.from_pretrained(base_model, lora_output_dir)
+# lora_model_loaded = PeftModel.from_pretrained(base_model, lora_output_dir)
+# lora_model_loaded = AutoPeftModelForSequenceClassification.from_pretrained(base_model, lora_output_dir)
+lora_model_loaded = AutoPeftModelForSequenceClassification.from_pretrained(lora_output_dir)
+
 print("Saved Trained LoRA Model:", lora_model_loaded)
 
-# Evaluate the trained LoRA model
-print("Evaluating the pre-trained base model...")
-evaluate_model(lora_model_loaded, tokenizer, test_subset['text'][start_pos:stop_pos])
-# # Test single entry
-# evaluate_singleton("I really, really, really hate it", lora_model_loaded)
-# evaluate_singleton("loved it!", lora_model_loaded)
+# # Evaluate the trained LoRA model
+# print("Evaluating the pre-trained base model...")
+# evaluate_model(lora_model_loaded, tokenizer, test_subset['text'][start_pos:stop_pos])
+# # # Test single entry
+# # evaluate_singleton("I really, really, really hate it", lora_model_loaded)
+# # evaluate_singleton("loved it!", lora_model_loaded)
